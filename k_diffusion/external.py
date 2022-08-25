@@ -124,3 +124,10 @@ class CompVisDenoiser(DiscreteEpsDDPMDenoiser):
 
     def get_eps(self, *args, **kwargs):
         return self.inner_model.apply_model(*args, **kwargs)
+
+class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
+    """A wrapper for diffuser latent diffusion models - including stable"""
+    def __init__(self, model, quantize=False, device='cpu'):
+        super().__init__(model, model.scheduler.alphas_cumprod, quantize=quantize)
+    def get_eps(self, *args, **kwargs):
+        return self.inner_model.unet(*args, **kwargs)["sample"]
