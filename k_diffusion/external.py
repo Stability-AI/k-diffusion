@@ -130,4 +130,5 @@ class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
     def __init__(self, model, quantize=False, device='cpu'):
         super().__init__(model, model.scheduler.alphas_cumprod, quantize=quantize)
     def get_eps(self, *args, **kwargs):
-        return self.inner_model.unet(*args, **kwargs)["sample"]
+        output = self.inner_model.unet(*args, **kwargs)
+        return output["sample"] if type(output)==dict else output
