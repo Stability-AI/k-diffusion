@@ -135,8 +135,21 @@ class CompVisDenoiser(DiscreteEpsDDPMDenoiser):
         super().__init__(model, model.alphas_cumprod, quantize=quantize)
 
     def get_eps(self, *args, **kwargs):
+        kwargs["cond"] = kwargs.pop("encoder_hidden_states")
         return self.inner_model.apply_model(*args, **kwargs)
 
+
+class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
+    """A wrapper for diffusers latent diffusion models - including stable"""
+
+    def __init__(self, model, quantize=False, device="cuda"):
+        super().__init__(
+            model, model.scheduler.alphas_cumprod.to(device), quantize=quantize
+        )
+
+    def get_eps(self, *args, **kwargs) -> torch.Tensor:
+        output = self.inner_model.unet(*args, **kwargs)
+        return output if type(output) is torch.Tensor else output["sample"]
 
 class DiscreteVDDPMDenoiser(DiscreteSchedule):
     """A wrapper for discrete schedule DDPM models that output v."""
