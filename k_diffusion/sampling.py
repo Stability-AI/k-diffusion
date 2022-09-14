@@ -39,10 +39,11 @@ def to_d(x, sigma, denoised):
     return (x - denoised) / utils.append_dims(sigma, x.ndim)
 
 
-def get_ancestral_step(sigma_from, sigma_to):
+def get_ancestral_step(sigma_from, sigma_to, eta:float=1.):
     """Calculates the noise level (sigma_down) to step down to and the amount
-    of noise to add (sigma_up) when doing an ancestral sampling step."""
-    sigma_up = (sigma_to ** 2 * (sigma_from ** 2 - sigma_to ** 2) / sigma_from ** 2) ** 0.5
+    of noise to add (sigma_up) when doing an ancestral sampling step.
+    Modified by Dango233 to support eta setting"""
+    sigma_up = eta * (sigma_to ** 2 * (sigma_from ** 2 - sigma_to ** 2) / sigma_from ** 2) ** 0.5
     sigma_down = (sigma_to ** 2 - sigma_up ** 2) ** 0.5
     return sigma_down, sigma_up
 
@@ -58,7 +59,7 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
         sigma_hat = sigmas[i] * (gamma + 1)
         if gamma > 0:
             x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
-        denoised = model(x, sigma_hat * s_in, **extra_args)
+        denoised = model(x, sigma_hat * s_in, order=0, **extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigma_hat, 'denoised': denoised})
@@ -69,13 +70,14 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
 
 
 @torch.no_grad()
-def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None):
-    """Ancestral sampling with Euler method steps."""
+def sample_euler_ancestral(model, x, sigmas, eta = 1, extra_args=None, callback=None, disable=None):
+    """Ancestral sampling with Euler method steps.
+    Modified by Dango233 to support eta setting"""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
-        denoised = model(x, sigmas[i] * s_in, **extra_args)
-        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1])
+        denoised = model(x, sigmas[i] * s_in, order=0, **extra_args)
+        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
         d = to_d(x, sigmas[i], denoised)
@@ -126,7 +128,7 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
         sigma_hat = sigmas[i] * (gamma + 1)
         if gamma > 0:
             x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
-        denoised = model(x, sigma_hat * s_in, **extra_args)
+        denoised = model(x, sigma_hat * s_in, order=1, **extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigma_hat, 'denoised': denoised})
@@ -135,20 +137,21 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
         dt_1 = sigma_mid - sigma_hat
         dt_2 = sigmas[i + 1] - sigma_hat
         x_2 = x + d * dt_1
-        denoised_2 = model(x_2, sigma_mid * s_in, **extra_args)
+        denoised_2 = model(x_2, sigma_mid * s_in, order=2, **extra_args)
         d_2 = to_d(x_2, sigma_mid, denoised_2)
         x = x + d_2 * dt_2
     return x
 
 
 @torch.no_grad()
-def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None):
-    """Ancestral sampling with DPM-Solver inspired second-order steps."""
+def sample_dpm_2_ancestral(model, x, sigmas, eta = 1, extra_args=None, callback=None, disable=None):
+    """Ancestral sampling with DPM-Solver inspired second-order steps.
+    Modified by Dango233 to support eta setting"""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
-        denoised = model(x, sigmas[i] * s_in, **extra_args)
-        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1])
+        denoised = model(x, sigmas[i] * s_in, order=1, **extra_args)
+        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
         d = to_d(x, sigmas[i], denoised)
@@ -157,7 +160,7 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
         dt_1 = sigma_mid - sigmas[i]
         dt_2 = sigma_down - sigmas[i]
         x_2 = x + d * dt_1
-        denoised_2 = model(x_2, sigma_mid * s_in, **extra_args)
+        denoised_2 = model(x_2, sigma_mid * s_in, order=2, **extra_args)
         d_2 = to_d(x_2, sigma_mid, denoised_2)
         x = x + d_2 * dt_2
         x = x + torch.randn_like(x) * sigma_up
@@ -184,7 +187,7 @@ def sample_lms(model, x, sigmas, extra_args=None, callback=None, disable=None, o
     sigmas_cpu = sigmas.detach().cpu().numpy()
     ds = []
     for i in trange(len(sigmas) - 1, disable=disable):
-        denoised = model(x, sigmas[i] * s_in, **extra_args)
+        denoised = model(x, sigmas[i] * s_in, order=0, **extra_args)
         d = to_d(x, sigmas[i], denoised)
         ds.append(d)
         if len(ds) > order:
@@ -207,7 +210,7 @@ def log_likelihood(model, x, sigma_min, sigma_max, extra_args=None, atol=1e-4, r
         nonlocal fevals
         with torch.enable_grad():
             x = x[0].detach().requires_grad_()
-            denoised = model(x, sigma * s_in, **extra_args)
+            denoised = model(x, sigma * s_in, order=0, **extra_args)
             d = to_d(x, sigma, denoised)
             fevals += 1
             grad = torch.autograd.grad((d * v).sum(), x)[0]
