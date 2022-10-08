@@ -43,6 +43,8 @@ def to_d(x, sigma, denoised):
 def get_ancestral_step(sigma_from, sigma_to, eta=1.):
     """Calculates the noise level (sigma_down) to step down to and the amount
     of noise to add (sigma_up) when doing an ancestral sampling step."""
+    if not eta:
+        return sigma_to, 0.
     sigma_up = min(sigma_to, eta * (sigma_to ** 2 * (sigma_from ** 2 - sigma_to ** 2) / sigma_from ** 2) ** 0.5)
     sigma_down = (sigma_to ** 2 - sigma_up ** 2) ** 0.5
     return sigma_down, sigma_up
@@ -317,6 +319,9 @@ class DPMSolver(nn.Module):
         return x_3, eps_cache
 
     def dpm_solver_fast(self, x, t_start, t_end, nfe, eta=0., s_noise=1.):
+        if not t_end > t_start and eta:
+            raise ValueError('eta must be 0 for reverse sampling')
+
         m = math.floor(nfe / 3) + 1
         ts = torch.linspace(t_start, t_end, m + 1, device=x.device)
 
@@ -328,11 +333,12 @@ class DPMSolver(nn.Module):
         for i in range(len(orders)):
             eps_cache = {}
             t, t_next = ts[i], ts[i + 1]
-            gamma = eta * torch.sqrt(2 * (t_next - t))
-            t = torch.maximum(t_start, t - gamma.log1p())
-            noise = torch.randn_like(x) * s_noise
-            if t < ts[i]:
-                x = x + noise * (self.sigma(t) ** 2 - self.sigma(ts[i]) ** 2).sqrt()
+            if eta:
+                sd, su = get_ancestral_step(self.sigma(t), self.sigma(t_next), eta)
+                t_next_ = torch.minimum(t_end, self.t(sd))
+                su = (self.sigma(t_next) ** 2 - self.sigma(t_next_) ** 2) ** 0.5
+            else:
+                t_next_, su = t_next, 0.
 
             eps, eps_cache = self.eps(eps_cache, 'eps', x, t)
             denoised = x - self.sigma(t) * eps
@@ -340,41 +346,56 @@ class DPMSolver(nn.Module):
                 self.info_callback({'x': x, 'i': i, 't': ts[i], 't_up': t, 'denoised': denoised})
 
             if orders[i] == 1:
-                x, eps_cache = self.dpm_solver_1_step(x, t, t_next, eps_cache=eps_cache)
+                x, eps_cache = self.dpm_solver_1_step(x, t, t_next_, eps_cache=eps_cache)
             elif orders[i] == 2:
-                x, eps_cache = self.dpm_solver_2_step(x, t, t_next, eps_cache=eps_cache)
+                x, eps_cache = self.dpm_solver_2_step(x, t, t_next_, eps_cache=eps_cache)
             else:
-                x, eps_cache = self.dpm_solver_3_step(x, t, t_next, eps_cache=eps_cache)
+                x, eps_cache = self.dpm_solver_3_step(x, t, t_next_, eps_cache=eps_cache)
+
+            x = x + su * s_noise * torch.randn_like(x)
 
         return x
 
-    def dpm_solver_adaptive(self, x, t_start, t_end, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81):
-        assert order in {2, 3}
+    def dpm_solver_adaptive(self, x, t_start, t_end, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1.):
+        if order not in {2, 3}:
+            raise ValueError('order should be 2 or 3')
+        forward = t_end > t_start
+        if not forward and eta:
+            raise ValueError('eta must be 0 for reverse sampling')
+        h_init = abs(h_init) * (1 if forward else -1)
         atol = torch.tensor(atol)
         rtol = torch.tensor(rtol)
         s = t_start
         x_prev = x
-        pid = PIDStepSizeController(h_init, pcoeff, icoeff, dcoeff, order, accept_safety)
+        accept = True
+        pid = PIDStepSizeController(h_init, pcoeff, icoeff, dcoeff, 1.5 if eta else order, accept_safety)
         info = {'steps': 0, 'nfe': 0, 'n_accept': 0, 'n_reject': 0}
 
-        while s < t_end - 1e-5:
+        while s < t_end - 1e-5 if forward else s > t_end + 1e-5:
             eps_cache = {}
+            t = torch.minimum(t_end, s + pid.h) if forward else torch.maximum(t_end, s + pid.h)
+            if eta:
+                sd, su = get_ancestral_step(self.sigma(s), self.sigma(t), eta)
+                t_ = torch.minimum(t_end, self.t(sd))
+                su = (self.sigma(t) ** 2 - self.sigma(t_) ** 2) ** 0.5
+            else:
+                t_, su = t, 0.
 
             eps, eps_cache = self.eps(eps_cache, 'eps', x, s)
             denoised = x - self.sigma(s) * eps
 
-            t = torch.minimum(t_end, s + pid.h)
             if order == 2:
-                x_low, eps_cache = self.dpm_solver_1_step(x, s, t, eps_cache=eps_cache)
-                x_high, eps_cache = self.dpm_solver_2_step(x, s, t, eps_cache=eps_cache)
+                x_low, eps_cache = self.dpm_solver_1_step(x, s, t_, eps_cache=eps_cache)
+                x_high, eps_cache = self.dpm_solver_2_step(x, s, t_, eps_cache=eps_cache)
             else:
-                x_low, eps_cache = self.dpm_solver_2_step(x, s, t, r1=1 / 3, eps_cache=eps_cache)
-                x_high, eps_cache = self.dpm_solver_3_step(x, s, t, eps_cache=eps_cache)
+                x_low, eps_cache = self.dpm_solver_2_step(x, s, t_, r1=1 / 3, eps_cache=eps_cache)
+                x_high, eps_cache = self.dpm_solver_3_step(x, s, t_, eps_cache=eps_cache)
             delta = torch.maximum(atol, rtol * torch.maximum(x_low.abs(), x_prev.abs()))
-            error = torch.linalg.norm((x_low - x_high) / delta) * x.numel() ** -(1 / 2)
-            if pid.propose_step(error):
+            error = torch.linalg.norm((x_low - x_high) / delta) / x.numel() ** 0.5
+            accept = pid.propose_step(error)
+            if accept:
                 x_prev = x_low
-                x = x_high
+                x = x_high + su * s_noise * torch.randn_like(x_high)
                 s = t
                 info['n_accept'] += 1
             else:
@@ -391,6 +412,8 @@ class DPMSolver(nn.Module):
 @torch.no_grad()
 def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback=None, disable=None, eta=0., s_noise=1.):
     """DPM-Solver-Fast (fixed step size). See https://arxiv.org/abs/2206.00927."""
+    if sigma_min <= 0 or sigma_max <= 0:
+        raise ValueError('sigma_min and sigma_max must not be 0')
     with tqdm(total=n, disable=disable) as pbar:
         dpm_solver = DPMSolver(model, extra_args, eps_callback=pbar.update)
         if callback is not None:
@@ -399,13 +422,15 @@ def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback
 
 
 @torch.no_grad()
-def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callback=None, disable=None, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, return_info=False):
+def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callback=None, disable=None, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., return_info=False):
     """DPM-Solver-12 and 23 (adaptive step size). See https://arxiv.org/abs/2206.00927."""
+    if sigma_min <= 0 or sigma_max <= 0:
+        raise ValueError('sigma_min and sigma_max must not be 0')
     with tqdm(disable=disable) as pbar:
         dpm_solver = DPMSolver(model, extra_args, eps_callback=pbar.update)
         if callback is not None:
             dpm_solver.info_callback = lambda info: callback({'sigma': dpm_solver.sigma(info['t']), 'sigma_hat': dpm_solver.sigma(info['t_up']), **info})
-        x, info = dpm_solver.dpm_solver_adaptive(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), order, rtol, atol, h_init, pcoeff, icoeff, dcoeff, accept_safety)
+        x, info = dpm_solver.dpm_solver_adaptive(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), order, rtol, atol, h_init, pcoeff, icoeff, dcoeff, accept_safety, eta, s_noise)
     if return_info:
         return x, info
     return x
