@@ -283,6 +283,7 @@ class DPMSolver(nn.Module):
         if key in eps_cache:
             return eps_cache[key], eps_cache
         sigma = self.sigma(t) * x.new_ones([x.shape[0]])
+        print("evaluating eps, order ", order)
         eps = (x - self.model(x, sigma, order=order, *args, **self.extra_args, **kwargs)) / self.sigma(t)
         if self.eps_callback is not None:
             self.eps_callback()
@@ -291,7 +292,7 @@ class DPMSolver(nn.Module):
     def dpm_solver_1_step(self, x, t, t_next, eps_cache=None):
         eps_cache = {} if eps_cache is None else eps_cache
         h = t_next - t
-        eps, eps_cache = self.eps(eps_cache, 'eps', x, t, order=0)
+        eps, eps_cache = self.eps(eps_cache, 'eps', x, t, order=1)
         x_1 = x - self.sigma(t_next) * h.expm1() * eps
         return x_1, eps_cache
 
@@ -340,7 +341,7 @@ class DPMSolver(nn.Module):
             else:
                 t_next_, su = t_next, 0.
 
-            eps, eps_cache = self.eps(eps_cache, 'eps', x, t)
+            eps, eps_cache = self.eps(eps_cache, 'eps', x, t, order=1)
             denoised = x - self.sigma(t) * eps
             if self.info_callback is not None:
                 self.info_callback({'x': x, 'i': i, 't': ts[i], 't_up': t, 'denoised': denoised})
