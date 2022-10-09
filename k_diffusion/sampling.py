@@ -350,7 +350,6 @@ class DPMSolver(nn.Module):
         if key in eps_cache:
             return eps_cache[key], eps_cache
         sigma = self.sigma(t) * x.new_ones([x.shape[0]])
-        print("evaluating eps, order ", order)
         eps = (x - self.model(x, sigma, order=order, *args, **self.extra_args, **kwargs)) / self.sigma(t)
         if self.eps_callback is not None:
             self.eps_callback()
@@ -426,7 +425,6 @@ class DPMSolver(nn.Module):
                         denoised = x - self.sigma(t_next_) * eps
                         t_s = self.model.sigma_to_t(self.sigma(t))
                         t_s = 1000-int(t_s.item())
-                        print(t_s)
                         grad =  guider(denoised, t_s, callback = callback)
                         x = x + grad * su
             x = x + su * s_noise * noise_sampler(self.sigma(t), self.sigma(t_next))
