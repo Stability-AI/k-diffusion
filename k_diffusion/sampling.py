@@ -319,7 +319,7 @@ class DPMSolver(nn.Module):
         x_3 = x - self.sigma(t_next) * h.expm1() * eps - self.sigma(t_next) / r2 * (h.expm1() / h - 1) * (eps_r2 - eps)
         return x_3, eps_cache
 
-    def dpm_solver_fast(self, x, t_start, t_end, nfe, eta=0., s_noise=1.):
+    def dpm_solver_fast(self, x, t_start, t_end, nfe, eta=0., s_noise=1., guider=None, callback=None):
         if not t_end > t_start and eta:
             raise ValueError('eta must be 0 for reverse sampling')
 
@@ -352,9 +352,16 @@ class DPMSolver(nn.Module):
                 x, eps_cache = self.dpm_solver_2_step(x, t, t_next_, eps_cache=eps_cache)
             else:
                 x, eps_cache = self.dpm_solver_3_step(x, t, t_next_, eps_cache=eps_cache)
-
+                if guider is not None:
+                    if guider.settings.adv_second_order_guidance == "sampler":
+                        eps, _ = self.eps({}, 'eps', x, t_next_, order=0)
+                        denoised = x - self.sigma(t_next_) * eps
+                        t_s = self.model.sigma_to_t(self.sigma(t))
+                        t_s = 1000-int(t_s.item())
+                        print(t_s)
+                        grad =  guider(denoised, t_s, callback = callback)
+                        x = x + grad * su
             x = x + su * s_noise * torch.randn_like(x)
-
         return x
 
     def dpm_solver_adaptive(self, x, t_start, t_end, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1.):
@@ -411,7 +418,7 @@ class DPMSolver(nn.Module):
 
 
 @torch.no_grad()
-def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback=None, disable=None, eta=0., s_noise=1.):
+def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback=None, disable=None, eta=0., s_noise=1, guider=None, callback_fn=None):
     """DPM-Solver-Fast (fixed step size). See https://arxiv.org/abs/2206.00927."""
     if sigma_min <= 0 or sigma_max <= 0:
         raise ValueError('sigma_min and sigma_max must not be 0')
@@ -419,7 +426,7 @@ def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback
         dpm_solver = DPMSolver(model, extra_args, eps_callback=pbar.update)
         if callback is not None:
             dpm_solver.info_callback = lambda info: callback({'sigma': dpm_solver.sigma(info['t']), 'sigma_hat': dpm_solver.sigma(info['t_up']), **info})
-        return dpm_solver.dpm_solver_fast(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), n, eta, s_noise)
+        return dpm_solver.dpm_solver_fast(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), n, eta, s_noise, guider, callback_fn)
 
 
 @torch.no_grad()
