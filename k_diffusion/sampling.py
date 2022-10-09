@@ -150,7 +150,7 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
 
 
 @torch.no_grad()
-def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1.):
+def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., guider=None, callback_fn=None):
     """Ancestral sampling with DPM-Solver inspired second-order steps."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -173,7 +173,11 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
             denoised_2 = model(x_2, sigma_mid * s_in, order=2, **extra_args)
             d_2 = to_d(x_2, sigma_mid, denoised_2)
             x = x + d_2 * dt_2
-            x = x + torch.randn_like(x) * sigma_up
+            if guider is not None:
+                denoised = model(x, sigma_down * s_in, order=0, **extra_args)
+                t = 1000 - int(model.sigma_to_t(sigma_down).item())
+                grad =  guider(denoised, t, callback = callback_fn)
+            x = x + torch.randn_like(x) * sigma_up + grad * sigma_up
     return x
 
 
