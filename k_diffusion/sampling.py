@@ -216,7 +216,7 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
 
 
 @torch.no_grad()
-def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
+def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, guider=None, callback_fn=None):
     """Ancestral sampling with DPM-Solver second-order steps."""
     extra_args = {} if extra_args is None else extra_args
     noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
@@ -240,7 +240,11 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
             denoised_2 = model(x_2, sigma_mid * s_in, order=2, **extra_args)
             d_2 = to_d(x_2, sigma_mid, denoised_2)
             x = x + d_2 * dt_2
-            x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
+            if guider is not None:
+                denoised = model(x, sigma_down * s_in, order=0, **extra_args)
+                t = 1000 - int(model.sigma_to_t(sigma_down).item())
+                grad =  guider(denoised, t, callback = callback_fn)
+            x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up + grad * sigma_up
     return x
 
 
