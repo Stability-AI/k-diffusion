@@ -177,7 +177,8 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
                 denoised = model(x, sigma_down * s_in, order=0, **extra_args)
                 t = 1000 - int(model.sigma_to_t(sigma_down).item())
                 grad =  guider(denoised, t, callback = callback_fn)
-            x = x + torch.randn_like(x) * sigma_up + grad * sigma_up
+                x = x + grad * sigma_up
+            x = x + torch.randn_like(x) * sigma_up
     return x
 
 

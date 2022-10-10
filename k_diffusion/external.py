@@ -110,7 +110,7 @@ class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
     def forward(self, input, sigma, **kwargs):
         c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         eps = self.get_eps(input * c_in, self.sigma_to_t(sigma), **kwargs)
-        return input + eps * c_out
+        return input[:,:eps.shape[1],:,:] + eps * c_out
 
 
 class OpenAIDenoiser(DiscreteEpsDDPMDenoiser):
