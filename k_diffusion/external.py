@@ -152,16 +152,16 @@ class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
         )
 
     def get_eps(self, *args, **kwargs) -> torch.Tensor:
-        if kwargs["ac"] is not None:
+        if "mask" in kwargs["ac"].keys():
             x = torch.cat(
                 [args[0], 
                 kwargs["ac"]["mask"].expand(args[0].shape[0],-1,-1,-1),
                 kwargs["ac"]["masked_latent"].expand(args[0].shape[0],-1,-1,-1)], dim=1)
-            kwargs.pop("ac")
             t = args[1]
         else:
             x = args[0]
             t = args[1]
+        kwargs.pop("ac")
         output = self.inner_model.unet(x,t, **kwargs)
         return output if type(output) is torch.Tensor else output["sample"]
 
