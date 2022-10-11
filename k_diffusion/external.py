@@ -110,7 +110,7 @@ class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
     def forward(self, input, sigma, **kwargs):
         c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         eps = self.get_eps(input * c_in, self.sigma_to_t(sigma), **kwargs)
-        return input[:,:eps.shape[1],:,:] + eps * c_out
+        return input + eps * c_out
 
 
 class OpenAIDenoiser(DiscreteEpsDDPMDenoiser):
@@ -135,7 +135,11 @@ class CompVisDenoiser(DiscreteEpsDDPMDenoiser):
         super().__init__(model, model.alphas_cumprod, quantize=quantize)
 
     def get_eps(self, *args, **kwargs):
-        kwargs["cond"] = kwargs.pop("encoder_hidden_states")
+        kwargs["ac"] = kwargs.pop("encoder_hidden_states")
+        if kwargs["ac"] is not None:
+            raise NotImplementedError("Additional conditions (inpainting) not supported for CompVis models yet")
+        else:
+            kwargs.pop("concat_dict")
         return self.inner_model.apply_model(*args, **kwargs)
 
 
@@ -148,5 +152,15 @@ class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
         )
 
     def get_eps(self, *args, **kwargs) -> torch.Tensor:
-        output = self.inner_model.unet(*args, **kwargs)
+        if kwargs["ac"] is not None:
+            x = torch.cat(
+                [args[0], 
+                kwargs["ac"]["mask"].expand(args[0].shape[0],-1,-1,-1),
+                kwargs["ac"]["masked_latent"].expand(args[0].shape[0],-1,-1,-1)], dim=1)
+            kwargs.pop("ac")
+            t = args[1]
+        else:
+            x = args[0]
+            t = args[1]
+        output = self.inner_model.unet(x,t, **kwargs)
         return output if type(output) is torch.Tensor else output["sample"]
