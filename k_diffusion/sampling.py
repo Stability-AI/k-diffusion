@@ -174,10 +174,11 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
             d_2 = to_d(x_2, sigma_mid, denoised_2)
             x = x + d_2 * dt_2
             if guider is not None:
-                denoised = model(x, sigma_down * s_in, order=0, **extra_args)
-                t = 1000 - int(model.sigma_to_t(sigma_down).item())
-                grad =  guider(denoised, t, callback = callback_fn)
-                x = x + grad * sigma_up
+                if guider.settings.adv_second_order_guidance == "sampler":
+                    denoised = model(x, sigma_down * s_in, order=0, **extra_args)
+                    t = 1000 - int(model.sigma_to_t(sigma_down).item())
+                    grad =  guider(denoised, t, callback = callback_fn)
+                    x = x + grad * sigma_up
             x = x + torch.randn_like(x) * sigma_up
     return x
 
