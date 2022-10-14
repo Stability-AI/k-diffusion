@@ -99,7 +99,7 @@ def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, 
         sigma_hat = sigmas[i] * (gamma + 1)
         if gamma > 0:
             x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
-        denoised = model(x, sigma_hat * s_in, **extra_args)
+        denoised = model(x, sigma_hat * s_in, order=1,**extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigma_hat, 'denoised': denoised})
@@ -110,7 +110,7 @@ def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, 
         else:
             # Heun's method
             x_2 = x + d * dt
-            denoised_2 = model(x_2, sigmas[i + 1] * s_in, **extra_args)
+            denoised_2 = model(x_2, sigmas[i + 1] * s_in, order=2, **extra_args)
             d_2 = to_d(x_2, sigmas[i + 1], denoised_2)
             d_prime = (d + d_2) / 2
             x = x + d_prime * dt
