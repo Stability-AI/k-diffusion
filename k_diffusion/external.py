@@ -158,6 +158,11 @@ class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
                 kwargs["ac"]["mask"].expand(args[0].shape[0],-1,-1,-1),
                 kwargs["ac"]["masked_latent"].expand(args[0].shape[0],-1,-1,-1)], dim=1)
             t = args[1]
+        elif "depth" in kwargs["ac"].keys():
+            x = torch.cat(
+                [args[0], 
+                kwargs["ac"]["depth"].expand(args[0].shape[0],-1,-1,-1),], dim=1)
+            t = args[1]
         else:
             x = args[0]
             t = args[1]
