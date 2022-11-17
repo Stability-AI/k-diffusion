@@ -156,7 +156,7 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, order=1, **extra_args)
-        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta, eta=eta)
+        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta=eta)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
         d = to_d(x, sigmas[i], denoised)
