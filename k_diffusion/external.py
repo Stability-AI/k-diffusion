@@ -152,20 +152,53 @@ class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
         )
 
     def get_eps(self, *args, **kwargs) -> torch.Tensor:
-        if "mask" in kwargs["ac"].keys():
-            x = torch.cat(
-                [args[0], 
-                kwargs["ac"]["mask"].expand(args[0].shape[0],-1,-1,-1),
-                kwargs["ac"]["masked_latent"].expand(args[0].shape[0],-1,-1,-1)], dim=1)
-            t = args[1]
-        elif "depth" in kwargs["ac"].keys():
-            x = torch.cat(
-                [args[0], 
-                kwargs["ac"]["depth"].expand(args[0].shape[0],-1,-1,-1),], dim=1)
-            t = args[1]
-        else:
-            x = args[0]
-            t = args[1]
-        kwargs.pop("ac")
-        output = self.inner_model.unet(x,t, **kwargs)
+        x, kwargs = kwargs_process(args[0], kwargs)
+        t = args[1]
+        output = self.inner_model.unet(x, t, **kwargs)
         return output if type(output) is torch.Tensor else output["sample"]
+
+class DiscreteVDDPMDenoiser(DiscreteSchedule):
+    """A wrapper for discrete schedule DDPM models that output v."""
+
+    def __init__(self, model, alphas_cumprod, quantize):
+        super().__init__(((1 - alphas_cumprod) / alphas_cumprod) ** 0.5, quantize)
+        self.inner_model = model
+        self.sigma_data = 1.
+
+    def get_scalings(self, sigma):
+        c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
+        c_out = -sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
+        c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
+        return c_skip, c_out, c_in
+
+    def get_v(self, *args, **kwargs):
+        return self.inner_model(*args, **kwargs)
+
+    def forward(self, input, sigma, **kwargs):
+        c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+        return self.get_v(input * c_in, self.sigma_to_t(sigma), **kwargs) * c_out + input * c_skip
+
+
+class DiffuserVDenoiser(DiscreteVDDPMDenoiser):
+    """A wrapper for CompVis v diffusion models."""
+
+    def __init__(self, model, quantize=False, device='cuda'):
+        super().__init__(model, model.scheduler.alphas_cumprod.to(device), quantize=quantize)
+
+    def get_v(self, x, t, **kwargs):
+        x, kwargs = kwargs_process(x, kwargs)
+        output = self.inner_model.unet(x, t, **kwargs)
+        return output if type(output) is torch.Tensor else output["sample"]
+
+def kwargs_process(x, kwargs=None):
+    if "mask" in kwargs["ac"].keys():
+        x = torch.cat(
+            [x, 
+            kwargs["ac"]["mask"].expand(x.shape[0],-1,-1,-1),
+            kwargs["ac"]["masked_latent"].expand(x.shape[0],-1,-1,-1)], dim=1)
+    elif "depth" in kwargs["ac"].keys():
+        x = torch.cat(
+            [x, 
+            kwargs["ac"]["depth"].expand(x.shape[0],-1,-1,-1),], dim=1)
+    kwargs.pop("ac")
+    return x, kwargs
