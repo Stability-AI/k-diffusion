@@ -143,7 +143,7 @@ class CompVisDenoiser(DiscreteEpsDDPMDenoiser):
         return self.inner_model.apply_model(*args, **kwargs)
 
 
-class DiffuserLDDenoiser(DiscreteEpsDDPMDenoiser):
+class DiffuserLDEPSDenoiser(DiscreteEpsDDPMDenoiser):
     """A wrapper for diffusers latent diffusion models - including stable"""
 
     def __init__(self, model, quantize=False, device="cuda"):
@@ -196,7 +196,8 @@ class DiscreteVDDPMDenoiser(DiscreteSchedule):
 
     def forward(self, input, sigma, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
-        return self.get_v(input * c_in, self.sigma_to_t(sigma), **kwargs) * c_out + input * c_skip
+        v = self.get_v(input * c_in, self.sigma_to_t(sigma), **kwargs)
+        return v * c_out + input * c_skip
 
 
 class CompVisVDenoiser(DiscreteVDDPMDenoiser):
@@ -208,7 +209,7 @@ class CompVisVDenoiser(DiscreteVDDPMDenoiser):
     def get_v(self, x, t, cond, **kwargs):
         return self.inner_model.apply_model(x, t, cond)
 
-class DiffuserVDenoiser(DiscreteVDDPMDenoiser):
+class DiffuserLDVDenoiser(DiscreteVDDPMDenoiser):
     """A wrapper for diffusers latent diffusion models - including stable"""
 
     def __init__(self, model, quantize=False, device="cuda"):
