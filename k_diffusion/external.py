@@ -207,3 +207,25 @@ class CompVisVDenoiser(DiscreteVDDPMDenoiser):
 
     def get_v(self, x, t, cond, **kwargs):
         return self.inner_model.apply_model(x, t, cond)
+
+class DiffuserVDenoiser(DiscreteVDDPMDenoiser):
+    """A wrapper for diffusers latent diffusion models - including stable"""
+
+    def __init__(self, model, quantize=False, device="cuda"):
+        super().__init__(
+            model, model.scheduler.alphas_cumprod.to(device), quantize=quantize
+        )
+
+    def get_v(self, x, t, **kwargs):
+        if "mask" in kwargs["ac"].keys():
+            x = torch.cat(
+                [x, 
+                kwargs["ac"]["mask"].expand(x.shape[0],-1,-1,-1),
+                kwargs["ac"]["masked_latent"].expand(x.shape[0],-1,-1,-1)], dim=1)
+        elif "depth" in kwargs["ac"].keys():
+            x = torch.cat(
+                [x, 
+                kwargs["ac"]["depth"].expand(x.shape[0],-1,-1,-1),], dim=1)
+        kwargs.pop("ac")
+        output = self.inner_model.unet(x,t, **kwargs)
+        return output if type(output) is torch.Tensor else output["sample"]
