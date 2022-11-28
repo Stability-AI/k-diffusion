@@ -199,6 +199,18 @@ class DiscreteVDDPMDenoiser(DiscreteSchedule):
         v = self.get_v(input * c_in, self.sigma_to_t(sigma), **kwargs)
         return v * c_out + input * c_skip
 
+    #Not working - loss 0.9
+    # def get_eps(self, input, sigma, **kwargs):
+    #     denoised = self.forward(input, sigma, **kwargs)
+    #     return  sampling.to_d(input, sigma, denoised)
+
+    # Seems identical to the version below(?)
+    # def get_eps(self, input, sigma, **kwargs):
+    #     c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+    #     v = self.get_v(input * c_in, self.sigma_to_t(sigma), **kwargs)
+    #     return  v * c_skip - input * c_out
+
+
 
 class CompVisVDenoiser(DiscreteVDDPMDenoiser):
     """A wrapper for CompVis diffusion models that output v."""
@@ -230,3 +242,10 @@ class DiffuserLDVDenoiser(DiscreteVDDPMDenoiser):
         kwargs.pop("ac")
         output = self.inner_model.unet(x,t, **kwargs)
         return output if type(output) is torch.Tensor else output["sample"]
+    
+    # Clean VP version
+    def get_eps(self, input, sigma, **kwargs):
+        alphas_cumprod = 1/(sigma**2+1)
+        alphas_cumprod = utils.append_dims(alphas_cumprod, input.ndim)
+        v = self.get_v(input, self.sigma_to_t(sigma), **kwargs)
+        return  v * (alphas_cumprod**.5) + input * ((1-alphas_cumprod)**.5)
