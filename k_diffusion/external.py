@@ -170,6 +170,8 @@ class DiffuserLDEPSDenoiser(DiscreteEpsDDPMDenoiser):
         output = self.inner_model.unet(x,t, **kwargs)
         return output if type(output) is torch.Tensor else output["sample"]
 
+DiffuserLDDenoiser = DiffuserLDEPSDenoiser
+    
 class DiscreteVDDPMDenoiser(DiscreteSchedule):
     """A wrapper for discrete schedule DDPM models that output v."""
 
