@@ -152,21 +152,8 @@ class DiffuserLDEPSDenoiser(DiscreteEpsDDPMDenoiser):
         )
 
     def get_eps(self, *args, **kwargs) -> torch.Tensor:
-        if "mask" in kwargs["ac"].keys():
-            x = torch.cat(
-                [args[0], 
-                kwargs["ac"]["mask"].expand(args[0].shape[0],-1,-1,-1),
-                kwargs["ac"]["masked_latent"].expand(args[0].shape[0],-1,-1,-1)], dim=1)
-            t = args[1]
-        elif "depth" in kwargs["ac"].keys():
-            x = torch.cat(
-                [args[0], 
-                kwargs["ac"]["depth"].expand(args[0].shape[0],-1,-1,-1),], dim=1)
-            t = args[1]
-        else:
-            x = args[0]
-            t = args[1]
-        kwargs.pop("ac")
+        x, t = args[0], args[1]
+        x, kwargs = prepare_input(x, kwargs)
         output = self.inner_model.unet(x,t, **kwargs)
         return output if type(output) is torch.Tensor else output["sample"]
 
@@ -218,15 +205,24 @@ class DiffuserLDVDenoiser(DiscreteVDDPMDenoiser):
         )
 
     def get_v(self, x, t, **kwargs):
-        if "mask" in kwargs["ac"].keys():
-            x = torch.cat(
-                [x, 
-                kwargs["ac"]["mask"].expand(x.shape[0],-1,-1,-1),
-                kwargs["ac"]["masked_latent"].expand(x.shape[0],-1,-1,-1)], dim=1)
-        elif "depth" in kwargs["ac"].keys():
-            x = torch.cat(
-                [x, 
-                kwargs["ac"]["depth"].expand(x.shape[0],-1,-1,-1),], dim=1)
-        kwargs.pop("ac")
+        x, kwargs = prepare_input(x, kwargs)
         output = self.inner_model.unet(x,t, **kwargs)
         return output if type(output) is torch.Tensor else output["sample"]
+
+def prepare_input(x, kwargs):
+    """Handles extra input channels for specialized models (Inpainting, depth, upscaler, etc)"""
+    if "mask" in kwargs["ac"].keys():
+        x = torch.cat(
+            [x, 
+            kwargs["ac"]["mask"].expand(x.shape[0],-1,-1,-1),
+            kwargs["ac"]["masked_latent"].expand(x.shape[0],-1,-1,-1)], dim=1)
+    elif "depth" in kwargs["ac"].keys():
+        x = torch.cat(
+            [x, 
+            kwargs["ac"]["depth"].expand(x.shape[0],-1,-1,-1),], dim=1)
+    elif "upscale_origin" in kwargs["ac"].keys():
+        x = torch.cat(
+            [x, 
+            kwargs["ac"]["upscale_origin"].expand(x.shape[0],-1,-1,-1),], dim=1)
+    kwargs.pop("ac")
+    return x, kwargs
