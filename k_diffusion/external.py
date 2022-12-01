@@ -224,5 +224,6 @@ def prepare_input(x, kwargs):
         x = torch.cat(
             [x, 
             kwargs["ac"]["upscale_origin"].expand(x.shape[0],-1,-1,-1),], dim=1)
+        kwargs["class_labels"] = torch.tensor([kwargs["ac"]["class_labels"]]).to(x.device, dtype=torch.int)
     kwargs.pop("ac")
     return x, kwargs
