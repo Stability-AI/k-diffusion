@@ -568,7 +568,7 @@ def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=N
     t_fn = lambda sigma: sigma.log().neg()
 
     for i in trange(len(sigmas) - 1, disable=disable):
-        denoised = model(x, sigmas[i] * s_in, **extra_args)
+        denoised = model(x, sigmas[i] * s_in, order = 1, **extra_args)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
         if sigmas[i + 1] == 0:
@@ -588,7 +588,7 @@ def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=N
             s_ = t_fn(sd)
             x_2 = (sigma_fn(s_) / sigma_fn(t)) * x - (t - s_).expm1() * denoised
             x_2 = x_2 + noise_sampler(sigma_fn(t), sigma_fn(s)) * s_noise * su
-            denoised_2 = model(x_2, sigma_fn(s) * s_in, order = 0, **extra_args)
+            denoised_2 = model(x_2, sigma_fn(s) * s_in, order = 2, **extra_args)
 
             # Step 2
             sd, su = get_ancestral_step(sigma_fn(t), sigma_fn(t_next), eta)
