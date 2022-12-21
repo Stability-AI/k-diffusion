@@ -246,5 +246,7 @@ def prepare_input(x, kwargs):
             [x, 
             kwargs["ac"]["upscale_origin"].expand(x.shape[0],-1,-1,-1),], dim=1)
         kwargs["class_labels"] = torch.tensor([kwargs["ac"]["class_labels"]]).to(x.device, dtype=torch.int)
+    elif "cfg_scale" in kwargs["ac"].keys():
+        kwargs["class_labels"] = torch.tensor([kwargs["ac"]["cfg_scale"]]).to(x.device, dtype=torch.int).expand(x.shape[0])
     kwargs.pop("ac")
     return x, kwargs
